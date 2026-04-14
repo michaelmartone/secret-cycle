@@ -193,8 +193,19 @@ class _BaseRotationHandler:
             )
         raise ValueError(f"Unsupported DB engine: {engine}")
 
+    @staticmethod
+    def _validate_db_username(username):
+        """Raise ValueError if the username contains characters outside [A-Za-z0-9_]."""
+        import re  # noqa: PLC0415
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,62}", username):
+            raise ValueError(
+                "DB username contains disallowed characters.  "
+                "Only letters, digits, and underscores are permitted."
+            )
+
     def _alter_user_password(self, master_dict, target_username, new_password):
         """Run ALTER USER / SET PASSWORD against the master connection."""
+        self._validate_db_username(target_username)
         engine = os.environ.get(
             "DB_ENGINE", master_dict.get("engine", "postgres")
         ).lower()
@@ -203,14 +214,20 @@ class _BaseRotationHandler:
             conn.autocommit = True
             with conn.cursor() as cur:
                 if engine == "postgres":
+                    from psycopg2 import sql as pg_sql  # noqa: PLC0415
                     cur.execute(
-                        "ALTER USER %s WITH PASSWORD %s",
-                        (target_username, new_password),
+                        pg_sql.SQL("ALTER USER {} WITH PASSWORD %s").format(
+                            pg_sql.Identifier(target_username)
+                        ),
+                        (new_password,),
                     )
                 else:
+                    # MySQL / MariaDB: username already validated above (no special chars).
+                    # Wrap in backticks to safely handle names that start with digits, etc.
+                    safe_user = f"`{target_username}`"
                     cur.execute(
-                        "ALTER USER %s@'%%' IDENTIFIED BY %s",
-                        (target_username, new_password),
+                        f"ALTER USER {safe_user}@'%%' IDENTIFIED BY %s",  # noqa: S608
+                        (new_password,),
                     )
         finally:
             conn.close()
@@ -304,13 +321,13 @@ class _SingleRotationHandler(_BaseRotationHandler):
             else pending
         )
         self._alter_user_password(master, pending["username"], pending["password"])
-        logger.info("Password updated in database for user %s", pending["username"])
+        logger.info("Password updated in database (single rotation)")
 
     def test_secret(self, secret_arn, token):
         pending = self._get_secret_value(secret_arn, _PENDING_SUFFIX)
         conn = self._get_connection(pending)
         conn.close()
-        logger.info("Test connection succeeded for user %s", pending["username"])
+        logger.info("Test connection succeeded")
 
     def finish_secret(self, secret_arn, token):
         metadata = self._client.describe_secret(SecretId=secret_arn)
@@ -371,11 +388,7 @@ class _AbRotationHandler(_BaseRotationHandler):
         pending["username"] = inactive_username
         pending["password"] = self._generate_password()
         self._put_secret_value(secret_arn, token, pending)
-        logger.info(
-            "Created pending secret: switching from %s to %s",
-            current["username"],
-            inactive_username,
-        )
+        logger.info("Created pending secret for A/B rotation (token %s)", token)
 
     def set_secret(self, secret_arn, token):
         pending = self._get_secret_value(secret_arn, _PENDING_SUFFIX)
@@ -386,17 +399,13 @@ class _AbRotationHandler(_BaseRotationHandler):
             )
         master = self._get_secret_value(master_arn, _CURRENT_SUFFIX)
         self._alter_user_password(master, pending["username"], pending["password"])
-        logger.info(
-            "Password set in database for inactive user %s", pending["username"]
-        )
+        logger.info("Password set in database for inactive account (A/B rotation)")
 
     def test_secret(self, secret_arn, token):
         pending = self._get_secret_value(secret_arn, _PENDING_SUFFIX)
         conn = self._get_connection(pending)
         conn.close()
-        logger.info(
-            "Test connection succeeded for inactive user %s", pending["username"]
-        )
+        logger.info("Test connection succeeded for inactive account")
 
     def finish_secret(self, secret_arn, token):
         metadata = self._client.describe_secret(SecretId=secret_arn)
@@ -442,11 +451,11 @@ def rotate_secret_cli():
     Required environment variables (in addition to the ones above):
       SECRET_ARN   – the ARN of the secret to rotate.
     """
-    secret_arn = os.environ["SECRET_ARN"]
+    rotation_target = os.environ["SECRET_ARN"]
     client = _secrets_client()
 
-    logger.info("Initiating rotation for secret %s", secret_arn)
-    response = client.rotate_secret(SecretId=secret_arn)
+    logger.info("Initiating rotation")
+    response = client.rotate_secret(SecretId=rotation_target)
     logger.info(
         "Rotation initiated – VersionId: %s", response.get("VersionId", "n/a")
     )
