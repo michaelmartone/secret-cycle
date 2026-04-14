@@ -1,0 +1,138 @@
+# Default values for secret-cycle Helm chart.
+# Override these in your own values file or with --set.
+
+# -- Number of replicas for the CronJob controller (not the job itself)
+replicaCount: 1
+
+image:
+  # -- Container registry / repository
+  repository: public.ecr.aws/amazonlinux/amazonlinux
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag; defaults to the chart appVersion
+  tag: ""
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# Rotation configuration
+# ---------------------------------------------------------------------------
+
+rotation:
+  # -- ARN of the Secrets Manager secret to rotate (required)
+  secretArn: ""
+
+  # -- Rotation strategy: "ab" (A/B username soft-handoff) or "single"
+  type: "ab"
+
+  # -- Database engine: "postgres", "mysql", or "mariadb"
+  dbEngine: "postgres"
+
+  # -- ARN of the master credentials secret (required for "ab" rotation)
+  masterSecretArn: ""
+
+  # -- Length of generated passwords
+  passwordLength: 32
+
+  # -- AWS region; defaults to the region inferred from the pod's IAM role
+  awsRegion: ""
+
+  # -- CronJob schedule (cron syntax) – default: every Sunday at 02:00 UTC
+  schedule: "0 2 * * 0"
+
+  # -- Number of successful job completions to retain
+  successfulJobsHistoryLimit: 3
+
+  # -- Number of failed job completions to retain
+  failedJobsHistoryLimit: 1
+
+  # -- Deadline (seconds) for job start after scheduled time
+  startingDeadlineSeconds: 300
+
+  # -- Whether to allow concurrent CronJob executions
+  concurrencyPolicy: Forbid
+
+# ---------------------------------------------------------------------------
+# Post-rotation cycling (optional)
+# ---------------------------------------------------------------------------
+
+ecs:
+  # -- ECS cluster name (leave blank to skip ECS cycling)
+  cluster: ""
+  # -- ECS service name
+  service: ""
+
+kubernetes:
+  # -- Namespace of the Deployment to restart after rotation (leave blank to skip)
+  namespace: ""
+  # -- Deployment name to rollout-restart after rotation
+  deployment: ""
+  # -- Whether the script runs with in-cluster credentials (true) or a kubeconfig secret (false)
+  inCluster: true
+  # -- ARN of a Secrets Manager secret containing a kubeconfig YAML (used when inCluster=false)
+  kubeconfigSecretArn: ""
+
+# ---------------------------------------------------------------------------
+# Service account and IRSA
+# ---------------------------------------------------------------------------
+
+serviceAccount:
+  # -- Whether to create a service account
+  create: true
+  # -- Annotations – add the IRSA annotation here
+  # e.g.: eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/my-rotation-role
+  annotations: {}
+  # -- Service account name; auto-generated if blank
+  name: ""
+
+# ---------------------------------------------------------------------------
+# Pod configuration
+# ---------------------------------------------------------------------------
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# -- Extra environment variables injected into the job container
+extraEnv: []
+# - name: MY_VAR
+#   value: "my-value"
+
+# -- Extra volumes
+extraVolumes: []
+
+# -- Extra volume mounts
+extraVolumeMounts: []
