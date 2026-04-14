@@ -222,9 +222,9 @@ class _BaseRotationHandler:
                         (new_password,),
                     )
                 else:
-                    # MySQL / MariaDB: username already validated above (no special chars).
-                    # Wrap in backticks to safely handle names that start with digits, etc.
-                    safe_user = f"`{target_username}`"
+                    # MySQL / MariaDB: username already validated above (only [A-Za-z0-9_]).
+                    # Escape any backtick that could theoretically survive as a secondary defense.
+                    safe_user = "`" + target_username.replace("`", "``") + "`"
                     cur.execute(
                         f"ALTER USER {safe_user}@'%%' IDENTIFIED BY %s",  # noqa: S608
                         (new_password,),
