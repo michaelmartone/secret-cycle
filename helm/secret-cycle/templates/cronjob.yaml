@@ -1,0 +1,106 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "secret-cycle.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "secret-cycle.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.rotation.schedule | quote }}
+  concurrencyPolicy: {{ .Values.rotation.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.rotation.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.rotation.failedJobsHistoryLimit }}
+  {{- if .Values.rotation.startingDeadlineSeconds }}
+  startingDeadlineSeconds: {{ .Values.rotation.startingDeadlineSeconds }}
+  {{- end }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "secret-cycle.selectorLabels" . | nindent 12 }}
+            {{- with .Values.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "secret-cycle.serviceAccountName" . }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: secret-cycle
+              image: {{ include "secret-cycle.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              command:
+                - python3
+                - /app/secret_cycle.py
+              env:
+                - name: SECRET_ARN
+                  value: {{ .Values.rotation.secretArn | quote }}
+                - name: ROTATION_TYPE
+                  value: {{ .Values.rotation.type | quote }}
+                - name: DB_ENGINE
+                  value: {{ .Values.rotation.dbEngine | quote }}
+                - name: PASSWORD_LENGTH
+                  value: {{ .Values.rotation.passwordLength | quote }}
+                {{- if .Values.rotation.masterSecretArn }}
+                - name: MASTER_SECRET_ARN
+                  value: {{ .Values.rotation.masterSecretArn | quote }}
+                {{- end }}
+                {{- if .Values.rotation.awsRegion }}
+                - name: AWS_REGION
+                  value: {{ .Values.rotation.awsRegion | quote }}
+                {{- end }}
+                {{- if .Values.ecs.cluster }}
+                - name: ECS_CLUSTER
+                  value: {{ .Values.ecs.cluster | quote }}
+                - name: ECS_SERVICE
+                  value: {{ .Values.ecs.service | quote }}
+                {{- end }}
+                {{- if .Values.kubernetes.namespace }}
+                - name: K8S_NAMESPACE
+                  value: {{ .Values.kubernetes.namespace | quote }}
+                - name: K8S_DEPLOYMENT
+                  value: {{ .Values.kubernetes.deployment | quote }}
+                - name: K8S_IN_CLUSTER
+                  value: {{ .Values.kubernetes.inCluster | quote }}
+                {{- if .Values.kubernetes.kubeconfigSecretArn }}
+                - name: KUBECONFIG_SECRET_ARN
+                  value: {{ .Values.kubernetes.kubeconfigSecretArn | quote }}
+                {{- end }}
+                {{- end }}
+                {{- with .Values.extraEnv }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              {{- with .Values.extraVolumeMounts }}
+              volumeMounts:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+          {{- with .Values.extraVolumes }}
+          volumes:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
